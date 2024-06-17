@@ -1,4 +1,4 @@
-# 带负载均衡的 HTTP 代理服务器
+# Pingora 实现的高效负载均衡 HTTP 代理
 
 这个项目展示了如何使用 Rust 的 `pingora` crate 创建带负载均衡的 HTTP 代理服务器。
 
