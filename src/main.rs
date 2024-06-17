@@ -59,7 +59,8 @@ impl ProxyHttp for LB {
         Ok(peer)
     }
 
-    // 在上游请求发送前，插入Host头部
+    // 在上游请求发送前，执行一些额外操作，例如将某些参数插入请求投
+    // 这里的示例是插入Host头部
     async fn upstream_request_filter(
         &self,
         _session: &mut Session,
