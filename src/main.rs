@@ -8,9 +8,10 @@ fn main() {
     // 初始化服务器
     my_server.bootstrap();
     // 创建一个负载均衡器，包含两个上游服务器
-    let upstreams = LoadBalancer::try_from_iter(["10.0.0.1:8080","10.0.0.2:8080"]).unwrap();
+    let upstreams = LoadBalancer::try_from_iter(["10.0.0.1:8080", "10.0.0.2:8080"]).unwrap();
     // 创建一个HTTP代理服务，并传入服务器配置和负载均衡器
-    let mut lb_service: pingora::services::listening::Service<pingora::proxy::HttpProxy<LB>> = http_proxy_service(&my_server.configuration, LB(Arc::new(upstreams)));
+    let mut lb_service: pingora::services::listening::Service<pingora::proxy::HttpProxy<LB>> =
+        http_proxy_service(&my_server.configuration, LB(Arc::new(upstreams)));
     // 添加一个TCP监听地址，监听80端口
     lb_service.add_tcp("0.0.0.0:80");
 
@@ -26,9 +27,7 @@ fn main() {
 
     // 定义服务列表，可以添加多个服务，这个示例只有一个负载均衡服务，
     // 将服务列表添加到服务器中
-    let services: Vec<Box<dyn Service>> = vec![
-        Box::new(lb_service),
-    ];
+    let services: Vec<Box<dyn Service>> = vec![Box::new(lb_service)];
     my_server.add_services(services);
     // 运行服务器，进入事件循环
     my_server.run_forever();
@@ -55,7 +54,8 @@ impl ProxyHttp for LB {
             .unwrap();
         println!("上游对等体是：{upstream:?}");
         // 创建一个新的HTTP对等体，设置SNI为example.com
-        let peer: Box<HttpPeer> = Box::new(HttpPeer::new(upstream, false, "example.com".to_string()));
+        let peer: Box<HttpPeer> =
+            Box::new(HttpPeer::new(upstream, false, "example.com".to_string()));
         Ok(peer)
     }
 
