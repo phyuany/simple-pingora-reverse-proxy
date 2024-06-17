@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use pingora::prelude::*;
+use pingora::{prelude::*, services::Service};
 use std::sync::Arc;
 
 fn main() {
@@ -8,13 +8,28 @@ fn main() {
     // 初始化服务器
     my_server.bootstrap();
     // 创建一个负载均衡器，包含两个上游服务器
-    let upstreams = LoadBalancer::try_from_iter(["192.168.9.34:80", "10.0.0.9:80"]).unwrap();
+    let upstreams = LoadBalancer::try_from_iter(["10.0.0.1:8080","10.0.0.2:8080"]).unwrap();
     // 创建一个HTTP代理服务，并传入服务器配置和负载均衡器
-    let mut lb = http_proxy_service(&my_server.configuration, LB(Arc::new(upstreams)));
-    // 添加一个TCP监听地址
-    lb.add_tcp("0.0.0.0:6188");
-    // 将服务添加到服务器中
-    my_server.add_service(lb);
+    let mut lb_service: pingora::services::listening::Service<pingora::proxy::HttpProxy<LB>> = http_proxy_service(&my_server.configuration, LB(Arc::new(upstreams)));
+    // 添加一个TCP监听地址，监听80端口
+    lb_service.add_tcp("0.0.0.0:80");
+
+    // 添加一个TLS监听地址，监听443端口
+    println!("The cargo manifest dir is: {}", env!("CARGO_MANIFEST_DIR"));
+    // 在项目目录下新增一个 keys 目录，对应证书文件放在该目录下
+    let cert_path = format!("{}/keys/example.com.crt", env!("CARGO_MANIFEST_DIR"));
+    let key_path = format!("{}/keys/example.com.key", env!("CARGO_MANIFEST_DIR"));
+    let mut tls_settings =
+        pingora::listeners::TlsSettings::intermediate(&cert_path, &key_path).unwrap();
+    tls_settings.enable_h2();
+    lb_service.add_tls_with_settings("0.0.0.0:443", None, tls_settings);
+
+    // 定义服务列表，可以添加多个服务，这个示例只有一个负载均衡服务，
+    // 将服务列表添加到服务器中
+    let services: Vec<Box<dyn Service>> = vec![
+        Box::new(lb_service),
+    ];
+    my_server.add_services(services);
     // 运行服务器，进入事件循环
     my_server.run_forever();
 }
@@ -51,7 +66,7 @@ impl ProxyHttp for LB {
         upstream_request: &mut RequestHeader,
         _ctx: &mut Self::CTX,
     ) -> Result<()> {
-        // 将Host头部设置为example.com
+        // 将Host头部设置为example.com，当然，在现实需求中，这一步可能是多余的
         upstream_request
             .insert_header("Host", "example.com")
             .unwrap();
