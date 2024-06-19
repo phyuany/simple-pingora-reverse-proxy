@@ -3,15 +3,23 @@ use pingora::{prelude::*, services::Service};
 use std::sync::Arc;
 
 fn main() {
-    // 创建一个服务器实例，参数为None表示使用默认配置
-    let mut my_server = Server::new(None).unwrap();
+    // 创建一个服务器实例，传入Some(Opt::default())代表使用默认配置，程序执行时支持接收命令行参数
+    let mut my_server = Server::new(Some(Opt::default())).unwrap();
     // 初始化服务器
     my_server.bootstrap();
-    // 创建一个负载均衡器，包含两个上游服务器
-    let upstreams = LoadBalancer::try_from_iter(["10.0.0.1:8080", "10.0.0.2:8080"]).unwrap();
+    // 创建一个负载均衡器，包含多个上游服务器
+    let mut upstreams = LoadBalancer::try_from_iter(["10.0.0.1:8080", "10.0.0.2:8080"]).unwrap();
+
+    // 进行健康检查，最终获得到可用的上游服务器
+    let hc = TcpHealthCheck::new();
+    upstreams.set_health_check(hc);
+    upstreams.health_check_frequency = Some(std::time::Duration::from_secs(1));
+    let background = background_service("health check", upstreams);
+    let upstreams = background.task();
+
     // 创建一个HTTP代理服务，并传入服务器配置和负载均衡器
     let mut lb_service: pingora::services::listening::Service<pingora::proxy::HttpProxy<LB>> =
-        http_proxy_service(&my_server.configuration, LB(Arc::new(upstreams)));
+        http_proxy_service(&my_server.configuration, LB(upstreams));
     // 添加一个TCP监听地址，监听80端口
     lb_service.add_tcp("0.0.0.0:80");
 
@@ -25,21 +33,20 @@ fn main() {
     tls_settings.enable_h2();
     lb_service.add_tls_with_settings("0.0.0.0:443", None, tls_settings);
 
-    // 定义服务列表，可以添加多个服务，这个示例只有一个负载均衡服务，
-    // 将服务列表添加到服务器中
+    // 定义服务列表，这个示例只有一个负载均衡服务，后续有需要可以添加更多，将服务列表添加到服务器中
     let services: Vec<Box<dyn Service>> = vec![Box::new(lb_service)];
     my_server.add_services(services);
     // 运行服务器，进入事件循环
     my_server.run_forever();
 }
 
-// 定义一个包含负载均衡器的结构体LB，用于包装Arc指针以实现多线程共享。
+// 定义一个包含负载均衡器的结构体LB，用于包装Arc指针以实现多线程共享
 pub struct LB(Arc<LoadBalancer<RoundRobin>>);
 
 // 使用#[async_trait]宏，异步实现ProxyHttp trait。
 #[async_trait]
 impl ProxyHttp for LB {
-    /// 定义上下文类型，这里使用空元组。对于这个小例子，我们不需要上下文存储
+    /// 定义上下文类型，这里使用空元组，对于这个小例子，我们不需要上下文存储
     type CTX = ();
     // 创建新的上下文实例，这里返回空元组
     fn new_ctx(&self) -> () {
@@ -59,8 +66,7 @@ impl ProxyHttp for LB {
         Ok(peer)
     }
 
-    // 在上游请求发送前，执行一些额外操作，例如将某些参数插入请求投
-    // 这里的示例是插入Host头部
+    // 在上游请求发送前，执行一些额外操作，例如将某些参数插入请求头，这里的示例是插入Host头部
     async fn upstream_request_filter(
         &self,
         _session: &mut Session,
